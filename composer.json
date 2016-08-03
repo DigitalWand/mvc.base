@@ -1,5 +1,5 @@
 {
-  "name": "mvc.base",
+  "name": "DigitalWand/mvc.base",
   "description": "Base Bitrix component implementing MVC pattern",
   "type": "bitrix-d7-component",
   "license": "MIT",
