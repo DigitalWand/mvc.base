@@ -3,6 +3,7 @@ namespace DigitalWand\MVC;
 
 use Bitrix\Main\Application;
 use Bitrix\Main\HttpRequest;
+use Bitrix\Main\NotImplementedException;
 
 /**
  * Class BaseComponent
@@ -26,6 +27,8 @@ use Bitrix\Main\HttpRequest;
  * </li>
  * <li>VERBOSE - Подробный вывод данных исключений. Отражается только на AJAX запросах.
  * По-умолчанию выключен, т.к. в production-режиме пользователю ни к чему знать, в какой строке какого кода было выброшено исключение</li>
+ * <li>CACHE_ACTION - массив с описанием правил кеширования экшенов контроллера. Ключ - имя контроллера.
+ * Значение: Y - если кешировать, N - не кешировть, любая другая строка или функция заполнят $additionalCacheId</li>
  * </ul>
  */
 class BaseComponent extends \CBitrixComponent
@@ -37,22 +40,30 @@ class BaseComponent extends \CBitrixComponent
      */
     const SKIP_AJAX_EXECUTION = null;
     /**
-     * @var array $defaultComponentParams - параметры компонента по-умолчанию
+     * @var array $internalComponentParams - параметры компонента по-умолчанию
+     * При ыборе между заданием настроек компонента в данном масиве и в .parameters.php стоит руководствоваться
+     * критерием: должен ли данный параметр меняться поьзователем/редактором из публичной части, или нет.
+     * В первом случае стоит отдать предпочтение .parameters.php, во втором - данной переменной.
+     *
+     * Возможность переопределить эти параметры из публичной части всё равно остаётся, науке пока не изметно, баг это или фича...
      */
-    static protected $defaultComponentParams = array(
+    static protected $internalComponentParams = array(
         'AJAX_CHECK_SESSID' => 'N',
-        'VERBOSE' => 'N'
+        'VERBOSE' => 'N',
+        'CACHE_ACTION' => []
     );
-
+    static private $arComponentParameters = null;
     /** @var \CMain $app */
-    protected $app;
+    public $app;
     /** @var HttpRequest $request */
-    protected $request;
+    public $request;
     protected $arUrlTemplates = array();
     protected $arVariableAliases = array();
-    protected $componentRoute = 'list';
+    protected $componentRoute = 'index';
     protected $arVariables = array();
     protected $arComponentVariables = array();
+    protected $actionClass;
+    protected $componentRouteVariables = array();
 
     /**
      * Инициализирует родной битриксовый класс и готовит полезные переменные
@@ -72,31 +83,96 @@ class BaseComponent extends \CBitrixComponent
     public function onPrepareComponentParams($arParams)
     {
         $arParams = parent::onPrepareComponentParams($arParams);
-        foreach (static::$defaultComponentParams as $name => $value) {
-            if (!isset($arParams[$name])) {
-                $arParams[$name] = $value;
-            }
-        }
+        $arParams = array_merge(static::$internalComponentParams, $arParams);
 
         return $arParams;
     }
 
     public function executeComponent()
     {
-        $this->getSEF_Settings();
-
-        if (!$this->componentRoute AND $this->arParams['SEF_MODE'] == 'Y') {
-            $this->showError(self::ERR_404);
+        if ($this->getSEF_Settings()) {
+            $this->runAction();
 
         } else {
+            $this->showError(self::ERR_404);
+        }
+    }
 
-            $componentRoute = $this->request->getPost('componentRoute');
-            if (($this->request->isAjaxRequest() OR $this->request->isPost()) && empty($componentRoute)) {
-                try {
-                    if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
-                        throw new \Exception('Session expired');
+    /**
+     * Инициализирует ЧПУ из настроек компонента
+     * @return bool
+     */
+    protected function getSEF_Settings()
+    {
+        if ($this->arParams['SEF_MODE'] != 'Y') {
+            return false;
+        }
+
+        $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
+        $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
+        $this->componentRoute = \CComponentEngine::ParseComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
+
+        if ($this->arParams['SEF_MODE'] == 'Y') {
+
+            if (!$this->componentRoute) {
+                if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
+                    $this->setDefaultAction();
+
+                    return true;
+                } else {
+                    return false;
+                }
+
+            } else {
+                \CComponentEngine::InitComponentVariables($this->componentRoute, $this->arComponentVariables, $this->arVariableAliases, $this->arVariables);
+
+                //переставляем переменные в том порядке, к вотором они должны попасть в функцию
+                $componentParameters = $this->getComponentParameters();
+                if (isset($componentParameters['PARAMETERS']['SEF_MODE'][$this->componentRoute]['VARIABLES'])) {
+                    $parametersVars = $componentParameters['PARAMETERS']['SEF_MODE'][$this->componentRoute]['VARIABLES'];
+                    foreach ($parametersVars as $varName) {
+                        if (isset($this->arVariables[$varName])) {
+                            $this->componentRouteVariables[] = $this->arVariables[$varName];
+                        } else {
+                            $this->componentRouteVariables[] = null;
+                        }
                     }
-                    $response = $this->onAjax($this->request, $componentRoute);
+                }
+
+                $this->actionClass = $this;
+                $this->componentRoute = ucfirst($this->componentRoute);
+
+                return true;
+            }
+
+        } else {
+            $this->setDefaultAction();
+
+            return true;
+        }
+    }
+
+    /**
+     * Выполняет действие
+     * @throws NotImplementedException
+     */
+    protected function runAction()
+    {
+        $function = 'action' . ucfirst($this->componentRoute);
+        $callable = array($this->actionClass, $function);
+
+        if (is_callable($callable)) {
+
+            $cacheOptions = $this->configureCacheAction();
+
+            if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
+                if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
+                    throw new \Exception('Session expired');
+                }
+
+                $function .= 'Ajax';
+                try {
+                    $response = call_user_func_array($callable, $this->componentRouteVariables);
 
                 } catch (\Exception $e) {
                     $response = array('success' => false);
@@ -112,38 +188,28 @@ class BaseComponent extends \CBitrixComponent
 
                 $this->arResult['AJAX'] = $response;
                 $this->sendAjaxResponse();
-            }
 
-            if ($this->startResultCache()) {
-                try {
-                    $this->getData($this->componentRoute);
-                } catch (\Exception $e) {
-                    $this->showError(self::ERR_EXCEPTION, $e);
+            } else {
+
+                //Если кеш выключен, то выполняем так
+                if ($cacheOptions === false) {
+                    $this->callActionFunction();
+
+                } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
+                    OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
+                ) {
+                    //То всё рвно выполняем, но кеширование уже началось ;-)
+                    $this->callActionFunction();
                 }
-
-                $componentPage = $this->componentRoute ? $this->componentRoute : "";
-                $this->includeComponentTemplate($componentPage);
             }
+
+        } else {
+            $className = $this->actionClass;
+            if (is_object($this->actionClass)) {
+                $className = get_class($this->actionClass);
+            }
+            throw new NotImplementedException("Function {$className}::{$function} does not exists!");
         }
-    }
-
-    /**
-     * Инициализирует ЧПУ из настроек компонента
-     * @return bool|string
-     * @internal
-     */
-    protected function getSEF_Settings()
-    {
-        if ($this->arParams['SEF_MODE'] != 'Y') {
-            return false;
-        }
-
-        $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
-        $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
-        $this->componentRoute = \CComponentEngine::ParseComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
-        \CComponentEngine::InitComponentVariables($this->componentRoute, $this->arComponentVariables, $this->arVariableAliases, $this->arVariables);
-
-        return $this->componentRoute;
     }
 
     /**
@@ -158,15 +224,70 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Обоработка AJAX-запроса к компоненту.
-     * @param HttpRequest $request
-     * @param string $route ЧПУ-страница компонента, для которой был вызван аякс
-     * @return array|bool|null Если нужно продолжить обычное исполнение страницы, то возвращаем BaseComponent::SKIP_AJAX_EXECUTION.
-     * @see BaseComponent::SKIP_AJAX_EXECUTION
+     * Сранивает два пути к каталогам.
+     * Сделано во избежании ошибок с завершающими слешами
+     * @see \CComponentEngine::guessComponentPath()
+     * @param $path1
+     * @param $path2
+     * @return bool
      */
-    protected function onAjax($request, $route)
+    public static function isPathsEqual($path1, $path2)
     {
-        return self::SKIP_AJAX_EXECUTION;
+        $path1 = "/" . trim($path1, "/ \t\n\r\0\x0B") . "/";
+        $path2 = "/" . trim($path2, "/ \t\n\r\0\x0B") . "/";
+
+        return $path1 == $path2;
+    }
+
+    /**
+     * Устанавливает для выполнение экшн по-умолчанию.
+     * @internal
+     */
+    protected function setDefaultAction()
+    {
+        $this->actionClass = $this;
+        $this->componentRoute = 'index';
+    }
+
+    /**
+     * Получает параетры компонента из .parameters.php
+     * @return null|array
+     */
+    protected function getComponentParameters()
+    {
+        if (is_null(static::$arComponentParameters)) {
+            $this->reflection = new \ReflectionClass($this);
+            $componentDir = dirname($this->reflection->getFileName()) . '/';
+            include $componentDir . '.parameters.php';
+            static::$arComponentParameters = $arComponentParameters;
+        }
+
+        return static::$arComponentParameters;
+    }
+
+    /**
+     * Полочает дополнительные параметры кеширования для отдельного действия
+     * @return bool|mixed
+     */
+    protected function configureCacheAction()
+    {
+        if (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
+            $cacheOption = $this->arParams['CACHE_ACTION'][$this->componentRoute];
+            if (is_callable($cacheOption)) {
+                return call_user_func($cacheOption);
+
+            } elseif (is_string($cacheOption)) {
+                if ($cacheOption == 'Y') {
+                    return true;
+                } elseif ($cacheOption == 'N') {
+                    return false;
+                } else {
+                    return $cacheOption;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -191,8 +312,41 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Сбор данных для компонента
-     * @param $page - страница для вывода
+     * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
+     * @param $callable
+     * @throws \Exception
      */
-    abstract protected function getData($page);
+    private function callActionFunction($callable)
+    {
+        try {
+            $success = call_user_func_array($callable, $this->componentRouteVariables);
+            if ($success === false) {
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
+            }
+
+        } catch (\Exception $e) {
+            if ($this->isDebugMode()) {
+                throw $e;
+            } else {
+                $this->showError(self::ERR_EXCEPTION, $e);
+            }
+        }
+
+        $componentPage = $this->componentRoute ? $this->componentRoute : "";
+        $this->includeComponentTemplate($componentPage);
+    }
+
+    /**
+     * Определяет, включен ли режим отладки для сайта.
+     * Можно переопределять функцию, в зависимости от устройства каждого конкретного сайта.
+     * @return bool
+     */
+    public function isDebugMode()
+    {
+        if (defined('BX_DEBUG') AND BX_DEBUG == 'Y') {
+            return true;
+        }
+
+        return false;
+    }
 }
