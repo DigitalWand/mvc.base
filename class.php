@@ -50,7 +50,8 @@ class BaseComponent extends \CBitrixComponent
     static protected $internalComponentParams = array(
         'AJAX_CHECK_SESSID' => 'N',
         'VERBOSE' => 'N',
-        'CACHE_ACTION' => []
+        'CACHE_ACTION' => [],
+        'ACTION_CLASS' => []
     );
     static private $arComponentParameters = null;
     /** @var \CMain $app */
@@ -62,8 +63,9 @@ class BaseComponent extends \CBitrixComponent
     protected $componentRoute = 'index';
     protected $arVariables = array();
     protected $arComponentVariables = array();
-    protected $actionClass;
+
     protected $componentRouteVariables = array();
+    private $callable;
 
     /**
      * Инициализирует родной битриксовый класс и готовит полезные переменные
@@ -116,7 +118,7 @@ class BaseComponent extends \CBitrixComponent
 
             if (!$this->componentRoute) {
                 if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
-                    $this->setDefaultAction();
+                    $this->genCallable(true);
 
                     return true;
                 } else {
@@ -139,14 +141,13 @@ class BaseComponent extends \CBitrixComponent
                     }
                 }
 
-                $this->actionClass = $this;
-                $this->componentRoute = ucfirst($this->componentRoute);
+                $this->genCallable();
 
                 return true;
             }
 
         } else {
-            $this->setDefaultAction();
+            $this->genCallable(true);
 
             return true;
         }
@@ -158,21 +159,17 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function runAction()
     {
-        $function = 'action' . ucfirst($this->componentRoute);
-        $callable = array($this->actionClass, $function);
+        $cacheOptions = $this->configureCacheAction();
 
-        if (is_callable($callable)) {
+        if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
+            if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
+                throw new \Exception('Session expired');
+            }
 
-            $cacheOptions = $this->configureCacheAction();
-
-            if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
-                if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
-                    throw new \Exception('Session expired');
-                }
-
-                $function .= 'Ajax';
+            $this->callable[1] .= $this->callable[1] . 'Ajax';
+            if (is_callable($this->callable)) {
                 try {
-                    $response = call_user_func_array($callable, $this->componentRouteVariables);
+                    $response = call_user_func_array($this->callable, $this->componentRouteVariables);
 
                 } catch (\Exception $e) {
                     $response = array('success' => false);
@@ -188,27 +185,25 @@ class BaseComponent extends \CBitrixComponent
 
                 $this->arResult['AJAX'] = $response;
                 $this->sendAjaxResponse();
-
             } else {
+                $this->throwNotImplemented();
+            }
 
-                //Если кеш выключен, то выполняем так
-                if ($cacheOptions === false) {
-                    $this->callActionFunction();
+        } elseif (is_callable($callable)) {
 
-                } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
-                    OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
-                ) {
-                    //То всё рвно выполняем, но кеширование уже началось ;-)
-                    $this->callActionFunction();
-                }
+            //Если кеш выключен, то выполняем так
+            if ($cacheOptions === false) {
+                $this->callActionFunction($callable);
+
+            } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
+                OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
+            ) {
+                //То всё рвно выполняем, но кеширование уже началось ;-)
+                $this->callActionFunction($callable);
             }
 
         } else {
-            $className = $this->actionClass;
-            if (is_object($this->actionClass)) {
-                $className = get_class($this->actionClass);
-            }
-            throw new NotImplementedException("Function {$className}::{$function} does not exists!");
+            $this->throwNotImplemented();
         }
     }
 
@@ -231,7 +226,7 @@ class BaseComponent extends \CBitrixComponent
      * @param $path2
      * @return bool
      */
-    public static function isPathsEqual($path1, $path2)
+    final public static function isPathsEqual($path1, $path2)
     {
         $path1 = "/" . trim($path1, "/ \t\n\r\0\x0B") . "/";
         $path2 = "/" . trim($path2, "/ \t\n\r\0\x0B") . "/";
@@ -240,20 +235,42 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Устанавливает для выполнение экшн по-умолчанию.
-     * @internal
+     * Формирует callable-объект для вызова экшена.
+     * Поддерживается аналог "Standalone actions" в Yii2: если в нстройках указано использовать другой класс в качестве экшена, то использует его.
+     * @param bool $default - сбрасывает настройки для вызова экшена "по-умолчанию"
      */
-    protected function setDefaultAction()
+    private function genCallable($default = false)
     {
-        $this->actionClass = $this;
-        $this->componentRoute = 'index';
+        if ($default) {
+            $this->componentRoute = 'index';
+            $this->callable = array(
+                $this,
+                'action' . ucfirst($this->componentRoute)
+            );
+
+        } else {
+            if (isset($this->arParams['ACTION_CLASS'][$this->componentRoute])) {
+                $actionClass = $this->arParams['ACTION_CLASS'][$this->componentRoute];
+                if (is_object($actionClass) OR class_exists($actionClass)) {
+                    $this->callable = array(
+                        $actionClass,
+                        'run'
+                    );
+                }
+            } else {
+                $this->callable = array(
+                    $this,
+                    'action' . ucfirst($this->componentRoute)
+                );
+            }
+        }
     }
 
     /**
      * Получает параетры компонента из .parameters.php
      * @return null|array
      */
-    protected function getComponentParameters()
+    private function getComponentParameters()
     {
         if (is_null(static::$arComponentParameters)) {
             $this->reflection = new \ReflectionClass($this);
@@ -266,10 +283,10 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Полочает дополнительные параметры кеширования для отдельного действия
+     * Получает дополнительные параметры кеширования для отдельного действия
      * @return bool|mixed
      */
-    protected function configureCacheAction()
+    private function configureCacheAction()
     {
         if (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
             $cacheOption = $this->arParams['CACHE_ACTION'][$this->componentRoute];
@@ -309,6 +326,19 @@ class BaseComponent extends \CBitrixComponent
             print json_encode($response);
             exit();
         }
+    }
+
+    /**
+     * Выбрасывает исключение, когда нужный нам метод не реализован
+     * @throws NotImplementedException
+     */
+    private function throwNotImplemented()
+    {
+        $className = $this->callable[0];
+        if (is_object($className)) {
+            $className = get_class($className);
+        }
+        throw new NotImplementedException("Function {$className}::{$this->callable[1]} does not exists!");
     }
 
     /**
