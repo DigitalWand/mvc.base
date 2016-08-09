@@ -189,17 +189,17 @@ class BaseComponent extends \CBitrixComponent
                 $this->throwNotImplemented();
             }
 
-        } elseif (is_callable($callable)) {
+        } elseif (is_callable($this->callable)) {
 
             //Если кеш выключен, то выполняем так
             if ($cacheOptions === false) {
-                $this->callActionFunction($callable);
+                $this->callActionFunction($this->callable);
 
             } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
                 OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
             ) {
                 //То всё рвно выполняем, но кеширование уже началось ;-)
-                $this->callActionFunction($callable);
+                $this->callActionFunction($this->callable);
             }
 
         } else {
