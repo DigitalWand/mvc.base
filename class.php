@@ -53,7 +53,7 @@ class BaseComponent extends \CBitrixComponent
         'CACHE_ACTION' => [],
         'ACTION_CLASS' => []
     );
-    static private $arComponentParameters = null;
+    static protected $arComponentParameters = null;
     /** @var \CMain $app */
     public $app;
     /** @var HttpRequest $request */
