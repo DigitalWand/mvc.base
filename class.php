@@ -5,6 +5,8 @@ use Bitrix\Main\Application;
 use Bitrix\Main\HttpRequest;
 use Bitrix\Main\NotImplementedException;
 
+include "AjaxException.php";
+
 /**
  * Class BaseComponent
  * @package DigitalWand\MVC
@@ -159,51 +161,55 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function runAction()
     {
-        $cacheOptions = $this->configureCacheAction();
-
-        if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
-            if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
-                throw new \Exception('Session expired');
-            }
-
-            $this->callable[1] .= $this->callable[1] . 'Ajax';
-            if (is_callable($this->callable)) {
-                try {
-                    $response = call_user_func_array($this->callable, $this->componentRouteVariables);
-
-                } catch (\Exception $e) {
-                    $response = array('success' => false);
-                    if ($this->arParams['VERBOSE'] == 'Y') {
-                        $response['exception'] = array(
-                            'message' => $e->getMessage(),
-                            'file' => $e->getFile(),
-                            'line' => $e->getLine(),
-                            'code' => $e->getCode()
-                        );
-                    }
+        try {
+            if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
+                if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
+                    throw new AjaxException('Session expired');
                 }
 
-                $this->arResult['AJAX'] = $response;
-                $this->sendAjaxResponse();
+                try {
+                    $this->callable[1] .= 'Ajax';
+                    if (is_callable($this->callable)) {
+
+                        $response = $this->callActionFunction();
+                        $this->arResult['AJAX'] = $response;
+                        $this->sendAjaxResponse();
+
+                    } else {
+                        $this->throwNotImplemented();
+                    }
+
+                } catch (\Exception $e) {
+                    throw new AjaxException($e->getMessage(), $e->getCode(), $e);
+                }
+
+            } elseif (is_callable($this->callable)) {
+                $this->callActionFunction();
+
             } else {
                 $this->throwNotImplemented();
             }
 
-        } elseif (is_callable($this->callable)) {
-
-            //Если кеш выключен, то выполняем так
-            if ($cacheOptions === false) {
-                $this->callActionFunction($this->callable);
-
-            } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
-                OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
-            ) {
-                //То всё рвно выполняем, но кеширование уже началось ;-)
-                $this->callActionFunction($this->callable);
+        } catch (AjaxException $e) {
+            $result = array('success' => false);
+            if ($this->arParams['VERBOSE'] == 'Y') {
+                $result['exception'] = array(
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'code' => $e->getCode()
+                );
             }
 
-        } else {
-            $this->throwNotImplemented();
+            $this->arResult['AJAX'] = $response;
+            $this->sendAjaxResponse();
+
+        } catch (\Exception $e) {
+            if ($this->isDebugMode()) {
+                throw $e;
+            } else {
+                $this->showError(self::ERR_EXCEPTION, $e);
+            }
         }
     }
 
@@ -283,6 +289,89 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
+     * Отправляет результат запроса на клиент
+     * @internal
+     */
+    protected function sendAjaxResponse()
+    {
+        $response = $this->arResult['AJAX'];
+        if ($response !== self::SKIP_AJAX_EXECUTION) {
+
+            if (is_array($response) AND !isset($response ['success'])) {
+                $response ['success'] = true;
+            } elseif (is_bool($this->arResult)) {
+                $response = array('success' => $this->arResult);
+            }
+
+            $this->app->RestartBuffer();
+            print json_encode($response);
+            exit();
+        }
+    }
+
+    /**
+     * Выбрасывает исключение, когда нужный нам метод не реализован
+     * @param bool $ajax
+     * @throws NotImplementedException
+     */
+    private function throwNotImplemented($ajax = false)
+    {
+        $className = $this->callable[0];
+        if (is_object($className)) {
+            $className = get_class($className);
+        }
+        throw new NotImplementedException("Function {$className}::{$this->callable[1]} does not exists!");
+    }
+
+    /**
+     * Определяет, включен ли режим отладки для сайта.
+     * Можно переопределять функцию, в зависимости от устройства каждого конкретного сайта.
+     * @return bool
+     */
+    public function isDebugMode()
+    {
+        if (defined('BX_DEBUG') AND BX_DEBUG == 'Y') {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
+     * @return mixed результат выполнения action
+     * @throws \Exception
+     */
+    private function callActionFunction()
+    {
+        $cacheOptions = $this->configureCacheAction();
+
+        //Если кеш выключен, то выполняем так
+        if ($cacheOptions === false) {
+            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
+            if ($result === false) {
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
+            }
+
+        } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
+            OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
+        ) {
+            //То всё рвно выполняем, но кеширование уже началось ;-)
+            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
+
+            if ($result === false) {
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
+
+            } elseif (!$this->isTemplateRendered()) {
+                $componentPage = $this->componentRoute ? $this->componentRoute : "";
+                $this->includeComponentTemplate($componentPage);
+            }
+        }
+
+        return $response;
+    }
+
+    /**
      * Получает дополнительные параметры кеширования для отдельного действия
      * @return bool|mixed
      */
@@ -308,75 +397,11 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Отправляет результат запроса на клиент
-     * @internal
-     */
-    protected function sendAjaxResponse()
-    {
-        $response = $this->arResult['AJAX'];
-        if ($response !== self::SKIP_AJAX_EXECUTION) {
-
-            if (is_array($response) AND !isset($response ['success'])) {
-                $response ['success'] = true;
-            } elseif (is_bool($this->arResult)) {
-                $response = array('success' => $this->arResult);
-            }
-
-            $this->app->RestartBuffer();
-            print json_encode($response);
-            exit();
-        }
-    }
-
-    /**
-     * Выбрасывает исключение, когда нужный нам метод не реализован
-     * @throws NotImplementedException
-     */
-    private function throwNotImplemented()
-    {
-        $className = $this->callable[0];
-        if (is_object($className)) {
-            $className = get_class($className);
-        }
-        throw new NotImplementedException("Function {$className}::{$this->callable[1]} does not exists!");
-    }
-
-    /**
-     * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
-     * @param $callable
-     * @throws \Exception
-     */
-    private function callActionFunction($callable)
-    {
-        try {
-            $success = call_user_func_array($callable, $this->componentRouteVariables);
-            if ($success === false) {
-                throw new \Exception("Error executing route's {$this->componentRoute} action");
-            }
-
-        } catch (\Exception $e) {
-            if ($this->isDebugMode()) {
-                throw $e;
-            } else {
-                $this->showError(self::ERR_EXCEPTION, $e);
-            }
-        }
-
-        $componentPage = $this->componentRoute ? $this->componentRoute : "";
-        $this->includeComponentTemplate($componentPage);
-    }
-
-    /**
-     * Определяет, включен ли режим отладки для сайта.
-     * Можно переопределять функцию, в зависимости от устройства каждого конкретного сайта.
+     * Проверяет, не выводили ли мы шаблон ранее.
      * @return bool
      */
-    public function isDebugMode()
+    protected function isTemplateRendered()
     {
-        if (defined('BX_DEBUG') AND BX_DEBUG == 'Y') {
-            return true;
-        }
-
-        return false;
+        return is_null($this->__template);
     }
 }
