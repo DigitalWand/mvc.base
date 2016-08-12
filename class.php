@@ -112,9 +112,10 @@ class BaseComponent extends \CBitrixComponent
             return false;
         }
 
+        $engine = new \CComponentEngine($this);
         $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
         $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
-        $this->componentRoute = \CComponentEngine::ParseComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
+        $this->componentRoute = $engine->guessComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
 
         if ($this->arParams['SEF_MODE'] == 'Y') {
 
@@ -221,7 +222,7 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function showError($type, $data)
     {
-
+        include($_SERVER['DOCUMENT_ROOT'] . '/404.php');
     }
 
     /**
@@ -289,6 +290,40 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
+     * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
+     * @return mixed результат выполнения action
+     * @throws \Exception
+     */
+    private function callActionFunction()
+    {
+        $cacheOptions = $this->configureCacheAction();
+
+        //Если кеш выключен, то выполняем так
+        if ($cacheOptions === false) {
+            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
+            if ($result === false) {
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
+            }
+
+        } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
+            OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
+        ) {
+            //То всё рвно выполняем, но кеширование уже началось ;-)
+            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
+
+            if ($response === false) {
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
+
+            } elseif (!$this->isTemplateRendered()) {
+                $componentPage = $this->componentRoute ? $this->componentRoute : "";
+                $this->includeComponentTemplate($componentPage);
+            }
+        }
+
+        return $response;
+    }
+
+    /**
      * Отправляет результат запроса на клиент
      * @internal
      */
@@ -338,40 +373,6 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
-     * @return mixed результат выполнения action
-     * @throws \Exception
-     */
-    private function callActionFunction()
-    {
-        $cacheOptions = $this->configureCacheAction();
-
-        //Если кеш выключен, то выполняем так
-        if ($cacheOptions === false) {
-            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
-            if ($result === false) {
-                throw new \Exception("Error executing route's {$this->componentRoute} action");
-            }
-
-        } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
-            OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
-        ) {
-            //То всё рвно выполняем, но кеширование уже началось ;-)
-            $response = call_user_func_array($this->callable, $this->componentRouteVariables);
-
-            if ($response === false) {
-                throw new \Exception("Error executing route's {$this->componentRoute} action");
-
-            } elseif (!$this->isTemplateRendered()) {
-                $componentPage = $this->componentRoute ? $this->componentRoute : "";
-                $this->includeComponentTemplate($componentPage);
-            }
-        }
-
-        return $response;
-    }
-
-    /**
      * Получает дополнительные параметры кеширования для отдельного действия
      * @return bool|mixed
      */
@@ -380,20 +381,18 @@ class BaseComponent extends \CBitrixComponent
         if (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
             $cacheOption = $this->arParams['CACHE_ACTION'][$this->componentRoute];
             if (is_callable($cacheOption)) {
-                return call_user_func($cacheOption);
+                $cacheOption = call_user_func($cacheOption);
+
+                return $this->getActionCacheID($cacheOption);
 
             } elseif (is_string($cacheOption)) {
-                if ($cacheOption == 'Y') {
-                    return true;
-                } elseif ($cacheOption == 'N') {
+                if ($cacheOption == 'N') {
                     return false;
-                } else {
-                    return $cacheOption;
                 }
             }
         }
 
-        return true;
+        return $this->getActionCacheID();
     }
 
     /**
@@ -403,5 +402,15 @@ class BaseComponent extends \CBitrixComponent
     protected function isTemplateRendered()
     {
         return !is_null($this->__template);
+    }
+
+    /**
+     * Модифицирует ID кеша так, чтобы для каждого экшена кеш был свой.
+     * @param $cacheID
+     * @return string
+     */
+    private function getActionCacheID($cacheID)
+    {
+        return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
     }
 }
