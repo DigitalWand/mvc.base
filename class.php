@@ -191,9 +191,9 @@ class BaseComponent extends \CBitrixComponent
             }
 
         } catch (AjaxException $e) {
-            $result = array('success' => false);
+            $response = array('success' => false);
             if ($this->arParams['VERBOSE'] == 'Y') {
-                $result['exception'] = array(
+                $response['exception'] = array(
                     'message' => $e->getMessage(),
                     'file' => $e->getFile(),
                     'line' => $e->getLine(),
@@ -359,7 +359,7 @@ class BaseComponent extends \CBitrixComponent
             //То всё рвно выполняем, но кеширование уже началось ;-)
             $response = call_user_func_array($this->callable, $this->componentRouteVariables);
 
-            if ($result === false) {
+            if ($response === false) {
                 throw new \Exception("Error executing route's {$this->componentRoute} action");
 
             } elseif (!$this->isTemplateRendered()) {
@@ -402,6 +402,6 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function isTemplateRendered()
     {
-        return is_null($this->__template);
+        return !is_null($this->__template);
     }
 }
