@@ -222,7 +222,9 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function showError($type, $data)
     {
-        include($_SERVER['DOCUMENT_ROOT'] . '/404.php');
+        if ($this->app->RestartWorkarea()) {
+            require(\Bitrix\Main\Application::getDocumentRoot() . "/404.php");
+        }
     }
 
     /**
