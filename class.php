@@ -3,9 +3,11 @@ namespace DigitalWand\MVC;
 
 use Bitrix\Main\Application;
 use Bitrix\Main\HttpRequest;
+use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
 include "AjaxException.php";
+Loc::loadMessages(__FILE__);
 
 /**
  * Class BaseComponent
@@ -84,10 +86,35 @@ class BaseComponent extends \CBitrixComponent
         $this->request = Application::getInstance()->getContext()->getRequest();
     }
 
+    /**
+     * Возвращает основные настройки для ипользования в .parameters.php
+     * @return array
+     */
+    public static function getArComponentParameters()
+    {
+        return array(
+            "PARAMETERS" => array(
+                "CACHE_TIME" => array('DEFAULT' => 3600),
+                "GREEDY_PARTS" => Array(
+                    "PARENT" => "ADDITIONAL_SETTINGS",
+                    "NAME" => Loc::getMessage("MVC_GREEDY_PARTS"),
+                    "TYPE" => "STRING",
+                    "MULTIPLE" => "N",
+                    "DEFAULT" => "",
+                ),
+            )
+        );
+    }
+
     public function onPrepareComponentParams($arParams)
     {
         $arParams = parent::onPrepareComponentParams($arParams);
         $arParams = array_merge(static::$internalComponentParams, $arParams);
+        if (!isset($this->arParams['MVC_GREEDY_PARTS'])) {
+            $this->arParams['MVC_GREEDY_PARTS'] = array();
+        } elseif (is_string($this->arParams['MVC_GREEDY_PARTS'])) {
+            $this->arParams['MVC_GREEDY_PARTS'] = explode(',', $this->arParams['MVC_GREEDY_PARTS']);
+        }
 
         return $arParams;
     }
@@ -108,16 +135,17 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function getSEF_Settings()
     {
-        if ($this->arParams['SEF_MODE'] != 'Y') {
-            return false;
-        }
-
-        $engine = new \CComponentEngine($this);
-        $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
-        $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
-        $this->componentRoute = $engine->guessComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
-
         if ($this->arParams['SEF_MODE'] == 'Y') {
+
+            $engine = new \CComponentEngine($this);
+
+            foreach ($this->arParams['MVC_GREEDY_PARTS'] as $part) {
+                $engine->addGreedyPart($placeholder);
+            }
+
+            $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
+            $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
+            $this->componentRoute = $engine->guessComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
 
             if (!$this->componentRoute) {
                 if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
