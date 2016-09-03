@@ -110,10 +110,10 @@ class BaseComponent extends \CBitrixComponent
     {
         $arParams = parent::onPrepareComponentParams($arParams);
         $arParams = array_merge(static::$internalComponentParams, $arParams);
-        if (!isset($this->arParams['MVC_GREEDY_PARTS'])) {
-            $this->arParams['MVC_GREEDY_PARTS'] = array();
-        } elseif (is_string($this->arParams['MVC_GREEDY_PARTS'])) {
-            $this->arParams['MVC_GREEDY_PARTS'] = explode(',', $this->arParams['MVC_GREEDY_PARTS']);
+        if (!isset($arParams['GREEDY_PARTS'])) {
+            $arParams['GREEDY_PARTS'] = array();
+        } elseif (is_string($arParams['GREEDY_PARTS'])) {
+            $arParams['GREEDY_PARTS'] = explode(',', $arParams['GREEDY_PARTS']);
         }
 
         return $arParams;
@@ -139,13 +139,15 @@ class BaseComponent extends \CBitrixComponent
 
             $engine = new \CComponentEngine($this);
 
-            foreach ($this->arParams['MVC_GREEDY_PARTS'] as $part) {
-                $engine->addGreedyPart($placeholder);
+            foreach ($this->arParams['GREEDY_PARTS'] as $part) {
+                $engine->addGreedyPart($part);
             }
 
             $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
             $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
             $this->componentRoute = $engine->guessComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
+
+            $this->parseGreedyPartsVariables();
 
             if (!$this->componentRoute) {
                 if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
@@ -442,5 +444,17 @@ class BaseComponent extends \CBitrixComponent
     private function getActionCacheID($cacheID)
     {
         return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
+    }
+
+    /**
+     * Разбивает "жадные" части урана отдельные значения
+     */
+    protected function parseGreedyPartsVariables()
+    {
+        foreach ($this->arParams['GREEDY_PARTS'] as $part) {
+            if (isset($this->arVariables[$part])) {
+                $this->arVariables[$part] = explode('/', $this->arVariables[$part]);
+            }
+        }
     }
 }
