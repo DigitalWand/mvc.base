@@ -37,12 +37,27 @@ Loc::loadMessages(__FILE__);
  */
 class BaseComponent extends \CBitrixComponent
 {
+    /**
+     * 404 ошибка, маршрут не найден
+     * @see BaseComponent::showError()
+     */
     const ERR_404 = 0;
+
+    /**
+     * Ошибка произошлав результате выброшенного исключения где-то в коде
+     * @see BaseComponent::showError()
+     */
     const ERR_EXCEPTION = 1;
+
     /**
      * Флаг пропуска исполнения AJAX.
+     * Используется, если необходимо прервать обработку аякса (наприер, чтобы провести её в дргом вложенном компоненте)
+     * <code>
+     * $this->arResult['AJAX'] = static::SKIP_AJAX_EXECUTION;
+     * </code>
      */
     const SKIP_AJAX_EXECUTION = null;
+
     /**
      * @var array $internalComponentParams - параметры компонента по-умолчанию
      * При ыборе между заданием настроек компонента в данном масиве и в .parameters.php стоит руководствоваться
@@ -57,18 +72,37 @@ class BaseComponent extends \CBitrixComponent
         'CACHE_ACTION' => [],
         'ACTION_CLASS' => []
     );
+
+    /**
+     * @var null|array $arComponentParameters
+     * @see BaseComponent::getComponentParameters()
+     */
     static protected $arComponentParameters = null;
+
     /** @var \CMain $app */
     public $app;
+
     /** @var HttpRequest $request */
     public $request;
+
     protected $arUrlTemplates = array();
     protected $arVariableAliases = array();
     protected $componentRoute = 'index';
     protected $arVariables = array();
     protected $arComponentVariables = array();
 
+    /**
+     * @var array $componentRouteVariables
+     * Данные, извлеченные из URL. Массив отсортирован так,чтобы порядок переменных соответствал
+     * порядку аргументов вaction-функции контроллера
+     */
     protected $componentRouteVariables = array();
+
+    /**
+     * @var callable $callable
+     * Динамически определяемая action-функция для оработки запроса.
+     * TODO: может находиться в отдельном классе.
+     */
     private $callable;
 
     /**
@@ -87,7 +121,7 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Возвращает основные настройки для ипользования в .parameters.php
+     * Возвращает основные настройки для ипользования в .parameters.php у наследуемых компонентов
      * @return array
      */
     public static function getArComponentParameters()
@@ -247,13 +281,25 @@ class BaseComponent extends \CBitrixComponent
     /**
      * Пользовательский обработчик страницы ошибок.
      * Не работает для AJAX-режима.
-     * @param string $type тип ошибки
+     * @param string $type тип ошибки. Может быть константой ERR_EXCEPTION или ERR_404
      * @param mixed $data данные об ошибке
      */
     protected function showError($type, $data)
     {
         if ($this->app->RestartWorkarea()) {
             require(\Bitrix\Main\Application::getDocumentRoot() . "/404.php");
+        }
+    }
+
+    /**
+     * Разбивает "жадные" части урана отдельные значения
+     */
+    protected function parseGreedyPartsVariables()
+    {
+        foreach ($this->arParams['GREEDY_PARTS'] as $part) {
+            if (isset($this->arVariables[$part])) {
+                $this->arVariables[$part] = explode('/', $this->arVariables[$part]);
+            }
         }
     }
 
@@ -277,6 +323,7 @@ class BaseComponent extends \CBitrixComponent
      * Формирует callable-объект для вызова экшена.
      * Поддерживается аналог "Standalone actions" в Yii2: если в нстройках указано использовать другой класс в качестве экшена, то использует его.
      * @param bool $default - сбрасывает настройки для вызова экшена "по-умолчанию"
+     * @see BaseComponent::$callable
      */
     private function genCallable($default = false)
     {
@@ -444,17 +491,5 @@ class BaseComponent extends \CBitrixComponent
     private function getActionCacheID($cacheID)
     {
         return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
-    }
-
-    /**
-     * Разбивает "жадные" части урана отдельные значения
-     */
-    protected function parseGreedyPartsVariables()
-    {
-        foreach ($this->arParams['GREEDY_PARTS'] as $part) {
-            if (isset($this->arVariables[$part])) {
-                $this->arVariables[$part] = explode('/', $this->arVariables[$part]);
-            }
-        }
     }
 }
