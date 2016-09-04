@@ -33,6 +33,7 @@ Loc::loadMessages(__FILE__);
  * По-умолчанию выключен, т.к. в production-режиме пользователю ни к чему знать, в какой строке какого кода было выброшено исключение</li>
  * <li>CACHE_ACTION - массив с описанием правил кеширования экшенов контроллера. Ключ - имя контроллера.
  * Значение: Y - если кешировать, N - не кешировть, любая другая строка или функция заполнят $additionalCacheId</li>
+ * <li>GREEDY_PARTS - "жадные" участки шаблона. Нужно указать список плейсхолдеров через запятую, которые содержат "жадные" урлы. </li>
  * </ul>
  */
 class BaseComponent extends \CBitrixComponent
@@ -57,21 +58,6 @@ class BaseComponent extends \CBitrixComponent
      * </code>
      */
     const SKIP_AJAX_EXECUTION = null;
-
-    /**
-     * @var array $internalComponentParams - параметры компонента по-умолчанию
-     * При ыборе между заданием настроек компонента в данном масиве и в .parameters.php стоит руководствоваться
-     * критерием: должен ли данный параметр меняться поьзователем/редактором из публичной части, или нет.
-     * В первом случае стоит отдать предпочтение .parameters.php, во втором - данной переменной.
-     *
-     * Возможность переопределить эти параметры из публичной части всё равно остаётся, науке пока не изметно, баг это или фича...
-     */
-    static protected $internalComponentParams = array(
-        'AJAX_CHECK_SESSID' => 'N',
-        'VERBOSE' => 'N',
-        'CACHE_ACTION' => [],
-        'ACTION_CLASS' => []
-    );
 
     /**
      * @var null|array $arComponentParameters
@@ -143,7 +129,7 @@ class BaseComponent extends \CBitrixComponent
     public function onPrepareComponentParams($arParams)
     {
         $arParams = parent::onPrepareComponentParams($arParams);
-        $arParams = array_merge(static::$internalComponentParams, $arParams);
+        $arParams = array_merge(static::getInternalComponentParameters(), $arParams);
         if (!isset($arParams['GREEDY_PARTS'])) {
             $arParams['GREEDY_PARTS'] = array();
         } elseif (is_string($arParams['GREEDY_PARTS'])) {
@@ -151,6 +137,24 @@ class BaseComponent extends \CBitrixComponent
         }
 
         return $arParams;
+    }
+
+    /**
+     * При ыборе между заданием настроек компонента в данном масиве и в .parameters.php стоит руководствоваться
+     * критерием: должен ли данный параметр меняться поьзователем/редактором из публичной части, или нет.
+     * В первом случае стоит отдать предпочтение .parameters.php, во втором - данной переменной.
+     *
+     * Возможность переопределить эти параметры из публичной части всё равно остаётся, науке пока не изметно, баг это или фича...
+     * @return array $internalComponentParams - параметры компонента по-умолчанию
+     */
+    public static function getInternalComponentParameters()
+    {
+        return array(
+            'AJAX_CHECK_SESSID' => 'N',
+            'VERBOSE' => 'N',
+            'CACHE_ACTION' => [],
+            'ACTION_CLASS' => []
+        );
     }
 
     public function executeComponent()
@@ -337,9 +341,15 @@ class BaseComponent extends \CBitrixComponent
         } else {
             if (isset($this->arParams['ACTION_CLASS'][$this->componentRoute])) {
                 $actionClass = $this->arParams['ACTION_CLASS'][$this->componentRoute];
-                if (is_object($actionClass) OR class_exists($actionClass)) {
+                if (is_object($actionClass)) {
                     $this->callable = array(
                         $actionClass,
+                        'run'
+                    );
+                } elseif(class_exists($actionClass)){
+                    $actionClassObject = new $actionClass();
+                    $this->callable = array(
+                        $actionClassObject,
                         'run'
                     );
                 }
