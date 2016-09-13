@@ -2,7 +2,6 @@
 namespace DigitalWand\MVC;
 
 use Bitrix\Main\Application;
-use Bitrix\Main\HttpRequest;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
@@ -32,7 +31,8 @@ Loc::loadMessages(__FILE__);
  * <li>VERBOSE - Подробный вывод данных исключений. Отражается только на AJAX запросах.
  * По-умолчанию выключен, т.к. в production-режиме пользователю ни к чему знать, в какой строке какого кода было выброшено исключение</li>
  * <li>CACHE_ACTION - массив с описанием правил кеширования экшенов контроллера. Ключ - имя контроллера.
- * Значение: Y - если кешировать, N - не кешировть, любая другая строка или функция заполнят $additionalCacheId</li>
+ * Значение: Y - если кешировать, N - не кешировть, любая другая строка, которая заполнит $additionalCacheId.
+ * Можно так же передать функцию, в качестве аргумента принимающую экземпляр класса компонента, возвращающую строку для $additionalCacheId.</li>
  * <li>ACTION_CLASS - массив для указания, для каких actions использовать отдельный класс.
  * Ключ массива - название actionв нижнем регистре. Значение - полное имя класса. Классом, отрабатывающим действие контроллера,
  * может быть любой класс с публичной не статичной функцией run()</li>
@@ -477,7 +477,7 @@ class BaseComponent extends \CBitrixComponent
         if (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
             $cacheOption = $this->arParams['CACHE_ACTION'][$this->componentRoute];
             if (is_callable($cacheOption)) {
-                $cacheOption = call_user_func($cacheOption);
+                $cacheOption = call_user_func($cacheOption, $this);
 
                 return $this->getActionCacheID($cacheOption);
 
