@@ -39,7 +39,7 @@ Loc::loadMessages(__FILE__);
  * <li>GREEDY_PARTS - "жадные" участки шаблона URL, т.е. содержащие слеши. Нужно указать список плейсхолдеров через запятую. </li>
  * </ul>
  *
- *
+ * Объявив константу BX_DEBUG, можно управлять режимом отладки компонента.
  */
 class BaseComponent extends \CBitrixComponent
 {
