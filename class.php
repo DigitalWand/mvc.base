@@ -6,7 +6,7 @@ use Bitrix\Main\HttpRequest;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
-include "AjaxException.php";
+require_once 'lib/AjaxException.php';
 Loc::loadMessages(__FILE__);
 
 /**
@@ -239,7 +239,7 @@ class BaseComponent extends \CBitrixComponent
                 try {
                     $this->callable[1] .= 'Ajax';
                     if (is_callable($this->callable)) {
-
+                        $this->arParams['AJAX_REQUEST'] = 'Y'; //необходимо, чтобы результаты ajax запроса кешировались отдельно от обычных запросов по тому е роуту.
                         $response = $this->callActionFunction();
                         $this->arResult['AJAX'] = $response;
                         $this->sendAjaxResponse();
@@ -346,7 +346,7 @@ class BaseComponent extends \CBitrixComponent
                         $actionClass,
                         'run'
                     );
-                } elseif(class_exists($actionClass)){
+                } elseif (class_exists($actionClass)) {
                     $actionClassObject = new $actionClass();
                     $this->callable = array(
                         $actionClassObject,
@@ -423,8 +423,13 @@ class BaseComponent extends \CBitrixComponent
 
             if (is_array($response) AND !isset($response ['success'])) {
                 $response ['success'] = true;
-            } elseif (is_bool($this->arResult)) {
-                $response = array('success' => $this->arResult);
+            } elseif (is_bool($response)) {
+                $response = array('success' => $response);
+            } else {
+                $response = array(
+                    'success' => true,
+                    'data' => $response
+                );
             }
 
             $this->app->RestartBuffer();
@@ -498,7 +503,7 @@ class BaseComponent extends \CBitrixComponent
      * @param $cacheID
      * @return string
      */
-    private function getActionCacheID($cacheID)
+    private function getActionCacheID($cacheID = null)
     {
         return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
     }
