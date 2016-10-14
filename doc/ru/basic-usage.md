@@ -31,6 +31,7 @@ class TestComponent extends BaseComponent
     public function actionTwo()
     {
         $this->arResult = 'two';
+        return 401;
     }
 }
 ```
@@ -40,6 +41,8 @@ class TestComponent extends BaseComponent
 При переходе на URL с компонентом, будет создан экземпляр класса TestComponent.
 По основному url будет вызываться функция `actionIndex()`, при переходе  к `/one/` будет вызвана `actionOne()`, 
 к `/two/` - `actionTwo()`. 
+
+При необходимости можно задать http-код ответа для url. Так, функция `actionTwo()` возвращает http-код 401. 
 
 Результаты работы всех функций по-умолчанию кешируются с разными ID кеша. 
 
