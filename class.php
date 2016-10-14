@@ -94,6 +94,12 @@ class BaseComponent extends \CBitrixComponent
     private $callable;
 
     /**
+     * @var \ReflectionClass $reflection
+     * Рефлексия поможет расширить возможности наследования.
+     */
+    private $reflection;
+
+    /**
      * Инициализирует родной битриксовый класс и готовит полезные переменные
      * BaseComponent constructor.
      * @param \CBitrixComponent|null $component
@@ -105,6 +111,7 @@ class BaseComponent extends \CBitrixComponent
         /** @var \CMain $APPLICATION */
         global $APPLICATION;
         $this->app = $APPLICATION;
+        $this->reflection = new \ReflectionClass($this);
     }
 
     /**
@@ -161,6 +168,7 @@ class BaseComponent extends \CBitrixComponent
     public function executeComponent()
     {
         if ($this->getSEF_Settings()) {
+            $this->includeParentLang();
             $this->runAction();
 
         } else {
@@ -222,6 +230,23 @@ class BaseComponent extends \CBitrixComponent
             $this->genCallable(true);
 
             return true;
+        }
+    }
+
+    /**
+     * Если наш класс отнаследован от другого класса, то может быть полезным включить ланг-файлы родительского
+     * класса. Таким образом, переводы тоже будут наследоваться.
+     */
+    private function includeParentLang()
+    {
+        /** @var $class ReflectionClass */
+        $class = $this->reflection;
+        while ($class = $class->getParentClass()) {
+            if ($class->getName() == 'CBitrixComponent') {
+                break;
+            }
+
+            Loc::loadMessages(str_replace('class.php', 'component.php', $class->getFileName()));
         }
     }
 
@@ -371,7 +396,6 @@ class BaseComponent extends \CBitrixComponent
     private function getComponentParameters()
     {
         if (is_null(static::$arComponentParameters)) {
-            $this->reflection = new \ReflectionClass($this);
             $componentDir = dirname($this->reflection->getFileName()) . '/';
             include $componentDir . '.parameters.php';
             static::$arComponentParameters = $arComponentParameters;
@@ -464,8 +488,12 @@ class BaseComponent extends \CBitrixComponent
      * @param int $code
      * @return int|string
      */
-    protected function setHttpResponse(int $code)
+    protected function setHttpResponse($code = null)
     {
+        if (is_null($code)) {
+            return false;
+        }
+
         switch ($code) {
             case 100:
                 $text = 'Continue';
@@ -583,7 +611,7 @@ class BaseComponent extends \CBitrixComponent
                 break;
         }
         $code = $code . ' ' . $text;
-        \Application::getInstance()->getContext()->getResponse()->setStatus($code);
+        Application::getInstance()->getContext()->getResponse()->setStatus($code);
 
         return $code;
     }
