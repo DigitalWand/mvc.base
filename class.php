@@ -141,7 +141,7 @@ class BaseComponent extends \CBitrixComponent
         if (!isset($arParams['GREEDY_PARTS'])) {
             $arParams['GREEDY_PARTS'] = array();
         } elseif (is_string($arParams['GREEDY_PARTS'])) {
-            $arParams['GREEDY_PARTS'] = explode(',', $arParams['GREEDY_PARTS']);
+            $arParams['GREEDY_PARTS'] = trim(explode(',', $arParams['GREEDY_PARTS']));
         }
 
         return $arParams;
