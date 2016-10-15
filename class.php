@@ -6,7 +6,6 @@ use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
 require_once 'lib/AjaxException.php';
-Loc::loadMessages(__FILE__);
 
 /**
  * Class BaseComponent
@@ -37,6 +36,8 @@ Loc::loadMessages(__FILE__);
  * Ключ массива - название actionв нижнем регистре. Значение - полное имя класса. Классом, отрабатывающим действие контроллера,
  * может быть любой класс с публичной не статичной функцией run()</li>
  * <li>GREEDY_PARTS - "жадные" участки шаблона URL, т.е. содержащие слеши. Нужно указать список плейсхолдеров через запятую. </li>
+ * <li>LANG_LAZY_LOAD - Использовать или нет "ленивую" загрузку lang-файлов. Если выключено (по-умолчанию), то становится возможным
+ * использовать наследование lang-файлов, даже если у класса много родителей</li>
  * </ul>
  *
  * Объявив константу BX_DEBUG, можно управлять режимом отладки компонента.
@@ -161,14 +162,14 @@ class BaseComponent extends \CBitrixComponent
             'AJAX_CHECK_SESSID' => 'N',
             'VERBOSE' => 'N',
             'CACHE_ACTION' => [],
-            'ACTION_CLASS' => []
+            'ACTION_CLASS' => [],
+            'LANG_LAZY_LOAD' => 'N',
         );
     }
 
     public function executeComponent()
     {
         if ($this->getSEF_Settings()) {
-            $this->includeParentLang();
             $this->runAction();
 
         } else {
@@ -236,17 +237,43 @@ class BaseComponent extends \CBitrixComponent
     /**
      * Если наш класс отнаследован от другого класса, то может быть полезным включить ланг-файлы родительского
      * класса. Таким образом, переводы тоже будут наследоваться.
+     * Наследование будет работать только в случае, если отключена "ленивая загрузка" переводов. Если включена -
+     * то тоже может сработать, но при нескольких родителях может выдать непредсказуемый результат. Так же нельзя
+     * будет переопределить сообщения, объявленные в каком-нибудь из родительских классов
      */
-    private function includeParentLang()
+    private function includeLangTree()
     {
         /** @var $class ReflectionClass */
         $class = $this->reflection;
+        $paths = array();
         while ($class = $class->getParentClass()) {
             if ($class->getName() == 'CBitrixComponent') {
                 break;
             }
 
-            Loc::loadMessages(str_replace('class.php', 'component.php', $class->getFileName()));
+            $path = str_replace('class.php', 'component.php', $class->getFileName());
+
+            //При ленивой загрузке нормальное наслдедование переводов невозможно,
+            //т.к. файлы для ленивой загрузки будут проверяться в рандомном порядке.
+            if ($this->langLazyLoad()) {
+                Loc::loadMessages($path);
+            } else {
+                $paths[] = $path;
+            }
+        }
+
+        //Если ленивоз загрузки нет, то порядок подключения имеет значение:
+        //сначала классы-предки, поотм потомки.
+
+        if($this->langLazyLoad()){
+            Loc::loadMessages(__FILE__);
+
+        } else {
+            $paths = array_reverse($paths);
+            foreach($paths as $path){
+                Loc::loadLanguageFile($path);
+            }
+            Loc::loadLanguageFile(__FILE__);
         }
     }
 
@@ -404,6 +431,11 @@ class BaseComponent extends \CBitrixComponent
         return static::$arComponentParameters;
     }
 
+    protected function langLazyLoad()
+    {
+        return ($this->arParams['LANG_LAZY_LOAD'] == 'Y');
+    }
+
     /**
      * Выполняет непосредственно вызов нужной функции, делает первичную обработку ошибок.
      * @return mixed результат выполнения action
@@ -415,6 +447,9 @@ class BaseComponent extends \CBitrixComponent
 
         //Если кеш выключен, то выполняем так
         if ($cacheOptions === false) {
+
+            $this->includeLangTree();
+
             $response = call_user_func_array($this->callable, $this->componentRouteVariables);
             if ($response === false) {
                 throw new \Exception("Error executing route's {$this->componentRoute} action");
@@ -425,6 +460,8 @@ class BaseComponent extends \CBitrixComponent
         } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
             OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
         ) {
+            $this->includeLangTree();
+
             //То всё рвно выполняем, но кеширование уже началось ;-)
             $response = call_user_func_array($this->callable, $this->componentRouteVariables);
 
