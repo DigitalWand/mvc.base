@@ -89,8 +89,7 @@ class BaseComponent extends \CBitrixComponent
 
     /**
      * @var callable $callable
-     * Динамически определяемая action-функция для оработки запроса.
-     * TODO: может находиться в отдельном классе.
+     * Динамически определяемая action-функция или класс для оработки запроса.
      */
     private $callable;
 
