@@ -234,49 +234,6 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
-     * Если наш класс отнаследован от другого класса, то может быть полезным включить ланг-файлы родительского
-     * класса. Таким образом, переводы тоже будут наследоваться.
-     * Наследование будет работать только в случае, если отключена "ленивая загрузка" переводов. Если включена -
-     * то тоже может сработать, но при нескольких родителях может выдать непредсказуемый результат. Так же нельзя
-     * будет переопределить сообщения, объявленные в каком-нибудь из родительских классов
-     */
-    private function includeLangTree()
-    {
-        /** @var $class ReflectionClass */
-        $class = $this->reflection;
-        $paths = array();
-        while ($class = $class->getParentClass()) {
-            if ($class->getName() == 'CBitrixComponent') {
-                break;
-            }
-
-            $path = str_replace('class.php', 'component.php', $class->getFileName());
-
-            //При ленивой загрузке нормальное наслдедование переводов невозможно,
-            //т.к. файлы для ленивой загрузки будут проверяться в рандомном порядке.
-            if ($this->langLazyLoad()) {
-                Loc::loadMessages($path);
-            } else {
-                $paths[] = $path;
-            }
-        }
-
-        //Если ленивоз загрузки нет, то порядок подключения имеет значение:
-        //сначала классы-предки, поотм потомки.
-
-        if($this->langLazyLoad()){
-            Loc::loadMessages(__FILE__);
-
-        } else {
-            $paths = array_reverse($paths);
-            foreach($paths as $path){
-                Loc::loadLanguageFile($path);
-            }
-            Loc::loadLanguageFile(__FILE__);
-        }
-    }
-
-    /**
      * Выполняет действие
      * @throws NotImplementedException
      */
@@ -428,11 +385,6 @@ class BaseComponent extends \CBitrixComponent
         }
 
         return static::$arComponentParameters;
-    }
-
-    protected function langLazyLoad()
-    {
-        return ($this->arParams['LANG_LAZY_LOAD'] == 'Y');
     }
 
     /**
@@ -690,6 +642,49 @@ class BaseComponent extends \CBitrixComponent
     }
 
     /**
+     * Если наш класс отнаследован от другого класса, то может быть полезным включить ланг-файлы родительского
+     * класса. Таким образом, переводы тоже будут наследоваться.
+     * Наследование будет работать только в случае, если отключена "ленивая загрузка" переводов. Если включена -
+     * то тоже может сработать, но при нескольких родителях может выдать непредсказуемый результат. Так же нельзя
+     * будет переопределить сообщения, объявленные в каком-нибудь из родительских классов
+     */
+    private function includeLangTree()
+    {
+        /** @var $class ReflectionClass */
+        $class = $this->reflection;
+        $paths = array();
+        while ($class = $class->getParentClass()) {
+            if ($class->getName() == 'CBitrixComponent') {
+                break;
+            }
+
+            $path = str_replace('class.php', 'component.php', $class->getFileName());
+
+            //При ленивой загрузке нормальное наслдедование переводов невозможно,
+            //т.к. файлы для ленивой загрузки будут проверяться в рандомном порядке.
+            if ($this->langLazyLoad()) {
+                Loc::loadMessages($path);
+            } else {
+                $paths[] = $path;
+            }
+        }
+
+        //Если ленивоз загрузки нет, то порядок подключения имеет значение:
+        //сначала классы-предки, поотм потомки.
+
+        if ($this->langLazyLoad()) {
+            Loc::loadMessages(__FILE__);
+
+        } else {
+            $paths = array_reverse($paths);
+            foreach ($paths as $path) {
+                Loc::loadLanguageFile($path);
+            }
+            Loc::loadLanguageFile(__FILE__);
+        }
+    }
+
+    /**
      * Проверяет, не выводили ли мы шаблон ранее.
      * @return bool
      */
@@ -706,5 +701,30 @@ class BaseComponent extends \CBitrixComponent
     private function getActionCacheID($cacheID = null)
     {
         return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
+    }
+
+    protected function langLazyLoad()
+    {
+        return ($this->arParams['LANG_LAZY_LOAD'] == 'Y');
+    }
+
+    /**
+     * Проверяет, может ли, к примеру, данный маршрут вызываться методом POST, или нет.
+     * @return bool
+     */
+    protected function checkRequestMethod()
+    {
+        $componentParameters = $this->getComponentParameters();
+        if (isset($componentParameters['PARAMETERS']['SEF_MODE'][$this->componentRoute]['METHOD'])) {
+            $allowedMethods = $componentParameters['PARAMETERS']['SEF_MODE'][$this->componentRoute]['METHOD'];
+            if (is_string($allowedMethods)) {
+                $allowedMethods = array($allowedMethods);
+            }
+            if (!in_array($this->request->getRequestMethod(), $allowedMethods)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
