@@ -5,9 +5,6 @@ use Bitrix\Main\Application;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
-require_once 'lib/AjaxException.php';
-require_once 'lib/ActionTrait.php';
-
 /**
  * Class BaseComponent
  * @package DigitalWand\MVC
