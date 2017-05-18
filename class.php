@@ -298,10 +298,13 @@ class BaseComponent extends \CBitrixComponent
      * @param string $type тип ошибки. Может быть константой ERR_EXCEPTION или ERR_404
      * @param mixed $data данные об ошибке
      */
-    protected function showError($type, $data)
+    protected function showError($type = null, $data = null)
     {
         if ($this->app->RestartWorkarea()) {
-            require(\Bitrix\Main\Application::getDocumentRoot() . "/404.php");
+            /** @noinspection PhpUnusedParameterInspection */
+            global /** @noinspection PhpUnusedLocalVariableInspection */
+            $APPLICATION;
+            require(Application::getDocumentRoot() . "/404.php");
         }
     }
 
@@ -381,6 +384,7 @@ class BaseComponent extends \CBitrixComponent
         if (is_null(static::$arComponentParameters)) {
             $componentDir = dirname($this->reflection->getFileName()) . '/';
             include $componentDir . '.parameters.php';
+            /** @var array $arComponentParameters */
             static::$arComponentParameters = $arComponentParameters;
         }
 
@@ -417,8 +421,8 @@ class BaseComponent extends \CBitrixComponent
             $response = call_user_func_array($this->callable, $this->componentRouteVariables);
 
             if ($response === false) {
-                throw new \Exception("Error executing route's {$this->componentRoute} action");
                 $this->abortResultCache();
+                throw new \Exception("Error executing route's {$this->componentRoute} action");
 
             } elseif (!$this->isTemplateRendered()) {
                 $this->arResult['status_code'] = $response;
@@ -650,7 +654,7 @@ class BaseComponent extends \CBitrixComponent
      */
     private function includeLangTree()
     {
-        /** @var $class ReflectionClass */
+        /** @var $class \ReflectionClass */
         $class = $this->reflection;
         $paths = array();
         while ($class = $class->getParentClass()) {
