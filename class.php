@@ -6,6 +6,7 @@ use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
 require_once 'lib/AjaxException.php';
+require_once 'lib/ActionTrait.php';
 
 /**
  * Class BaseComponent
@@ -201,7 +202,7 @@ class BaseComponent extends \CBitrixComponent
 
             if (!$this->componentRoute) {
                 if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
-                    $this->genCallable(true);
+                    $this->callableFactory(true);
 
                     return true;
                 } else {
@@ -224,13 +225,13 @@ class BaseComponent extends \CBitrixComponent
                     }
                 }
 
-                $this->genCallable();
+                $this->callableFactory();
 
                 return true;
             }
 
         } else {
-            $this->genCallable(true);
+            $this->callableFactory(true);
 
             return true;
         }
@@ -345,7 +346,7 @@ class BaseComponent extends \CBitrixComponent
      * @param bool $default - сбрасывает настройки для вызова экшена "по-умолчанию"
      * @see BaseComponent::$callable
      */
-    private function genCallable($default = false)
+    private function callableFactory($default = false)
     {
         if ($default) {
             $this->componentRoute = 'index';
@@ -357,17 +358,21 @@ class BaseComponent extends \CBitrixComponent
         } else {
             if (isset($this->arParams['ACTION_CLASS'][$this->componentRoute])) {
                 $actionClass = $this->arParams['ACTION_CLASS'][$this->componentRoute];
-                if (is_object($actionClass)) {
-                    $this->callable = array(
-                        $actionClass,
-                        'run'
-                    );
-                } elseif (class_exists($actionClass)) {
-                    $actionClassObject = new $actionClass();
-                    $this->callable = array(
-                        $actionClassObject,
-                        'run'
-                    );
+                if ($this->isAction($actionClass)) {
+                    if (is_object($actionClass)) {
+                        $actionClass->setComponent($this);
+                        $this->callable = array(
+                            $actionClass,
+                            'run'
+                        );
+                    } elseif (class_exists($actionClass)) {
+                        $actionClassObject = new $actionClass();
+                        $actionClassObject->setComponent($this);
+                        $this->callable = array(
+                            $actionClassObject,
+                            'run'
+                        );
+                    }
                 }
             } else {
                 $this->callable = array(
@@ -376,6 +381,12 @@ class BaseComponent extends \CBitrixComponent
                 );
             }
         }
+    }
+
+    private function isAction($class)
+    {
+        $traits = class_uses($class);
+        return isset($traits["DigitalWand\MVC\ActionTrait"]);
     }
 
     /**
