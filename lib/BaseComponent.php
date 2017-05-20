@@ -2,9 +2,11 @@
 namespace DigitalWand\MVC;
 
 use Bitrix\Main\Application;
+use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
 
+Loc::loadMessages(__FILE__);
 /**
  * Class BaseComponent
  * @package DigitalWand\MVC

@@ -89,6 +89,7 @@ class ReviewStep extends CWizardStep
         list($fieldsToCheck, $mandatoryFields) = RoutesStep::getFieldsToCheck();
         $converted = array(
             'name' => $variables['name'],
+            'title' => $variables['title'],
             'namespace' => $variables['namespace'],
             'description' => $variables['description'],
             'routes' => array()
