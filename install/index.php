@@ -30,11 +30,13 @@ class digitalwand_mvc extends CModule
 
     function DoInstall()
     {
+        CopyDirFiles(__DIR__ . '/wizard', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/wizards/digitalwand/', true, true);
         RegisterModule($this->MODULE_ID);
     }
 
     function DoUninstall()
     {
         UnRegisterModule($this->MODULE_ID);
+        DeleteDirFiles(__DIR__ . '/wizard', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/wizards/digitalwand/mvc');
     }
 }
