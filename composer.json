@@ -18,6 +18,9 @@
       "email": "asgalex@gmail.com"
     }
   ],
+  "extra": {
+    "installer-name": "digitalwand.mvc"
+  },
   "require": {
     "php": ">=7.0",
     "composer/installers": "~1"
