@@ -60,7 +60,7 @@ class BaseComponent extends \CBitrixComponent
      * Флаг пропуска исполнения AJAX.
      * Используется, если необходимо прервать обработку аякса (наприер, чтобы провести её в дргом вложенном компоненте)
      * <code>
-     * $this->arResult['AJAX'] = static::SKIP_AJAX_EXECUTION;
+     * $this->arResult['RAW_DATA'] = static::SKIP_AJAX_EXECUTION;
      * </code>
      */
     const SKIP_AJAX_EXECUTION = null;
@@ -129,6 +129,14 @@ class BaseComponent extends \CBitrixComponent
                     "TYPE" => "STRING",
                     "MULTIPLE" => "N",
                     "DEFAULT" => "",
+                ),
+                "REST_MODE" => array(
+                    "NAME" => Loc::getMessage("MVC_REST_MODE"),
+                    "TYPE" => "CHECKBOX",
+                    "MULTIPLE" => "N",
+                    "VALUE" => "N",
+                    "DEFAULT" => "N",
+                    "PARENT" => "ADDITIONAL_SETTINGS",
                 ),
             )
         );
@@ -243,25 +251,45 @@ class BaseComponent extends \CBitrixComponent
     protected function runAction()
     {
         try {
-            if ($this->request->isAjaxRequest() OR $this->request->isPost()) {
-                if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
-                    throw new AjaxException('Session expired');
-                }
+            if ($this->request->isAjaxRequest() OR $this->request->isPost() OR $this->isRestMode()) {
 
-                try {
-                    $this->callable[1] .= 'Ajax';
-                    if (is_callable($this->callable)) {
-                        $this->arParams['AJAX_REQUEST'] = 'Y'; //необходимо, чтобы результаты ajax запроса кешировались отдельно от обычных запросов по тому е роуту.
-                        $response = $this->callActionFunction();
-                        $this->arResult['AJAX'] = $response;
-                        $this->sendAjaxResponse();
+                if ($this->isRestMode()) {
 
-                    } else {
-                        $this->throwNotImplemented();
+                    try {
+                        if (is_callable($this->callable)) {
+                            $response = $this->callActionFunction();
+                            $this->arResult['RAW_DATA'] = $response;
+                            $this->sendRawDataResponse();
+
+                        } else {
+                            $this->throwNotImplemented();
+                        }
+
+                    } catch (\Exception $e) {
+                        throw new RestException($e->getMessage(), $e->getCode(), $e);
                     }
 
-                } catch (\Exception $e) {
-                    throw new AjaxException($e->getMessage(), $e->getCode(), $e);
+                } else {
+
+                    if ($this->arParams['AJAX_CHECK_SESSID'] == 'Y' AND !check_bitrix_sessid()) {
+                        throw new AjaxException('Session expired');
+                    }
+
+                    try {
+                        $this->callable[1] .= 'Ajax';
+                        if (is_callable($this->callable)) {
+                            $this->arParams['AJAX_REQUEST'] = 'Y'; //необходимо, чтобы результаты ajax запроса кешировались отдельно от обычных запросов по тому же роуту.
+                            $response = $this->callActionFunction();
+                            $this->arResult['RAW_DATA'] = $response;
+                            $this->sendRawDataResponse();
+
+                        } else {
+                            $this->throwNotImplemented();
+                        }
+
+                    } catch (\Exception $e) {
+                        throw new AjaxException($e->getMessage(), $e->getCode(), $e);
+                    }
                 }
 
             } elseif (is_callable($this->callable)) {
@@ -283,8 +311,22 @@ class BaseComponent extends \CBitrixComponent
                 );
             }
 
-            $this->arResult['AJAX'] = $response;
-            $this->sendAjaxResponse();
+            $this->arResult['RAW_DATA'] = $response;
+            $this->sendRawDataResponse();
+
+        } catch (RestException $e) {
+            $response = array('success' => false);
+            if ($this->arParams['VERBOSE'] == 'Y') {
+                $response['exception'] = array(
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'code' => $e->getCode()
+                );
+            }
+
+            $this->arResult['RAW_DATA'] = $response;
+            $this->sendRawDataResponse();
 
         } catch (\Exception $e) {
             if ($this->isDebugMode()) {
@@ -451,25 +493,30 @@ class BaseComponent extends \CBitrixComponent
     /**
      * Отправляет результат запроса на клиент
      * @internal
+     * @param string $format
      */
-    protected function sendAjaxResponse()
+    protected function sendRawDataResponse($format = 'json')
     {
-        $response = $this->arResult['AJAX'];
-        if ($response !== self::SKIP_AJAX_EXECUTION) {
+        $response = $this->arResult['RAW_DATA'];
+        if ($response !== static::SKIP_AJAX_EXECUTION OR $this->isRestMode()) {
 
-            if (is_array($response) AND !isset($response ['success'])) {
-                $response ['success'] = true;
-            } elseif (is_bool($response)) {
-                $response = array('success' => $response);
-            } else {
-                $response = array(
-                    'success' => true,
-                    'data' => $response
-                );
+            if(!$this->isRestMode()) {
+                if (is_array($response) AND !isset($response ['success'])) {
+                    $response ['success'] = true;
+                } elseif (is_bool($response)) {
+                    $response = array('success' => $response);
+                } else {
+                    $response = array(
+                        'success' => true,
+                        'data' => $response
+                    );
+                }
             }
 
             $this->app->RestartBuffer();
-            print json_encode($response);
+            if ($format == 'json') {
+                print json_encode($response);
+            }
             exit();
         }
     }
@@ -743,5 +790,10 @@ class BaseComponent extends \CBitrixComponent
         }
 
         return true;
+    }
+
+    public function isRestMode()
+    {
+        return $this->arParams['REST_MODE'] == 'Y';
     }
 }
