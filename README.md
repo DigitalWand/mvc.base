@@ -46,3 +46,4 @@
 
 * [Простой пример использования](doc/ru/basic-usage.md)
 * ["Продвинутое" использование](doc/ru/advanced-usage.md)
+* [Создание REST-сервера](doc/ru/rest-mode.md)
