@@ -2,9 +2,11 @@
 namespace DigitalWand\MVC;
 
 use Bitrix\Main\Application;
+use Bitrix\Main\Config\Configuration;
 use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\NotImplementedException;
+use Bitrix\Main\Request;
 
 Loc::loadMessages(__FILE__);
 /**
@@ -58,9 +60,12 @@ class BaseComponent extends \CBitrixComponent
 
     /**
      * Флаг пропуска исполнения AJAX.
-     * Используется, если необходимо прервать обработку аякса (наприер, чтобы провести её в дргом вложенном компоненте)
+     * Используется, если необходимо прервать обработку аякса в данном классе и передать вызов вложенному компоненту.
      * <code>
-     * $this->arResult['RAW_DATA'] = static::SKIP_AJAX_EXECUTION;
+     * function actionIndexAjax()
+     * {
+     *      return static::SKIP_AJAX_EXECUTION;
+     * }
      * </code>
      */
     const SKIP_AJAX_EXECUTION = null;
@@ -70,9 +75,6 @@ class BaseComponent extends \CBitrixComponent
      * @see BaseComponent::getComponentParameters()
      */
     static protected $arComponentParameters = null;
-
-    /** @var \CMain $app */
-    public $app;
 
     protected $arUrlTemplates = array();
     protected $arVariableAliases = array();
@@ -108,9 +110,6 @@ class BaseComponent extends \CBitrixComponent
     {
         parent::__construct($component);
 
-        /** @var \CMain $APPLICATION */
-        global $APPLICATION;
-        $this->app = $APPLICATION;
         $this->reflection = new \ReflectionClass($this);
     }
 
@@ -173,7 +172,7 @@ class BaseComponent extends \CBitrixComponent
             'VERBOSE' => 'N',
             'CACHE_ACTION' => [],
             'ACTION_CLASS' => [],
-            'LANG_LAZY_LOAD' => 'N',
+            'LANG_LAZY_LOAD' => 'N'
         );
     }
 
@@ -185,6 +184,36 @@ class BaseComponent extends \CBitrixComponent
         } else {
             $this->showError(self::ERR_404);
         }
+    }
+
+    /**
+     * Берем данные из тела запроса, преобразуем в ассоциативный массив
+     * и добавляем к имеющимяся данным класса Request
+     * @param string $format JSON by default
+     * @return bool
+     * @throws NotImplementedException
+     * @throws \InvalidArgumentException
+     */
+    private function fillRequestBodyFromRaw($format = 'json')
+    {
+        $requestBody = file_get_contents('php://input');
+        if (empty($requestBody)) {
+            return false;
+        }
+
+        if ($format == 'json') {
+            $restRequest = json_decode($requestBody, true);
+            if (is_null($restRequest)) {
+                throw new \InvalidArgumentException("Request data does not contain valid JSON, or the nesting is too deep.");
+            }
+            $originalValues = $this->request->toArray();
+            $restRequest = array_merge($originalValues, $restRequest);
+            $this->request->set($restRequest);
+        } else {
+            throw new NotImplementedException('Format ' . $format . ' in request body is not supported yet.');
+        }
+
+        return true;
     }
 
     /**
@@ -255,11 +284,12 @@ class BaseComponent extends \CBitrixComponent
 
                 if ($this->isRestMode()) {
 
+                    $this->fillRequestBodyFromRaw();
+
                     try {
                         if (is_callable($this->callable)) {
                             $response = $this->callActionFunction();
-                            $this->arResult['RAW_DATA'] = $response;
-                            $this->sendRawDataResponse();
+                            $this->sendRawDataResponse($response);
 
                         } else {
                             $this->throwNotImplemented();
@@ -280,8 +310,7 @@ class BaseComponent extends \CBitrixComponent
                         if (is_callable($this->callable)) {
                             $this->arParams['AJAX_REQUEST'] = 'Y'; //необходимо, чтобы результаты ajax запроса кешировались отдельно от обычных запросов по тому же роуту.
                             $response = $this->callActionFunction();
-                            $this->arResult['RAW_DATA'] = $response;
-                            $this->sendRawDataResponse();
+                            $this->sendRawDataResponse($response);
 
                         } else {
                             $this->throwNotImplemented();
@@ -293,8 +322,7 @@ class BaseComponent extends \CBitrixComponent
                 }
 
             } elseif (is_callable($this->callable)) {
-                $responseCode = $this->callActionFunction();
-                $this->setHttpResponse($responseCode);
+                $this->callActionFunction();
 
             } else {
                 $this->throwNotImplemented();
@@ -311,8 +339,7 @@ class BaseComponent extends \CBitrixComponent
                 );
             }
 
-            $this->arResult['RAW_DATA'] = $response;
-            $this->sendRawDataResponse();
+            $this->sendRawDataResponse($response);
 
         } catch (RestException $e) {
             $response = array('success' => false);
@@ -325,14 +352,13 @@ class BaseComponent extends \CBitrixComponent
                 );
             }
 
-            $this->arResult['RAW_DATA'] = $response;
-            $this->sendRawDataResponse();
+            $this->sendRawDataResponse($response);
 
         } catch (\Exception $e) {
             if ($this->isDebugMode()) {
                 throw $e;
             } else {
-                $this->showError(self::ERR_EXCEPTION, $e);
+                $this->showError(static::ERR_EXCEPTION, $e);
             }
         }
     }
@@ -345,7 +371,7 @@ class BaseComponent extends \CBitrixComponent
      */
     protected function showError($type = null, $data = null)
     {
-        if ($this->app->RestartWorkarea()) {
+        if ($this->app()->RestartWorkarea()) {
             /** @noinspection PhpUnusedParameterInspection */
             global /** @noinspection PhpUnusedLocalVariableInspection */
             $APPLICATION;
@@ -465,7 +491,7 @@ class BaseComponent extends \CBitrixComponent
                 throw new \Exception("Error executing route's {$this->componentRoute} action");
             }
 
-            $this->arResult['status_code'] = $response;
+            $this->arResult['RESPONSE_DATA'] = $response;
 
         } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
             OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
@@ -480,24 +506,25 @@ class BaseComponent extends \CBitrixComponent
                 throw new \Exception("Error executing route's {$this->componentRoute} action");
 
             } elseif (!$this->isTemplateRendered()) {
-                $this->arResult['status_code'] = $response;
+                $this->arResult['RESPONSE_DATA'] = $response;
                 $componentPage = $this->componentRoute ? $this->componentRoute : "";
                 $this->includeComponentTemplate($componentPage);
             }
 
         }
 
-        return $this->arResult['status_code'];
+        return $this->arResult['RESPONSE_DATA'];
     }
 
     /**
      * Отправляет результат запроса на клиент
      * @internal
+     * @param array|null $response
      * @param string $format
+     * @throws NotImplementedException
      */
-    protected function sendRawDataResponse($format = 'json')
+    protected function sendRawDataResponse($response, $format = 'json')
     {
-        $response = $this->arResult['RAW_DATA'];
         if ($response !== static::SKIP_AJAX_EXECUTION OR $this->isRestMode()) {
 
             if(!$this->isRestMode()) {
@@ -513,10 +540,13 @@ class BaseComponent extends \CBitrixComponent
                 }
             }
 
-            $this->app->RestartBuffer();
+            $this->app()->RestartBuffer();
             if ($format == 'json') {
                 print json_encode($response);
+            } else {
+                throw new NotImplementedException('Format ' . $format . ' in request body is not supported yet.');
             }
+
             exit();
         }
     }
@@ -540,7 +570,7 @@ class BaseComponent extends \CBitrixComponent
      * @param int $code
      * @return int|string
      */
-    protected function setHttpResponse($code = null)
+    protected function setHttpResponseCode($code = null)
     {
         if (is_null($code)) {
             return false;
@@ -670,12 +700,12 @@ class BaseComponent extends \CBitrixComponent
 
     /**
      * Определяет, включен ли режим отладки для сайта.
-     * Можно переопределять функцию, в зависимости от устройства каждого конкретного сайта.
      * @return bool
      */
-    public function isDebugMode()
+    final public function isDebugMode()
     {
-        if (defined('BX_DEBUG') AND BX_DEBUG == 'Y') {
+        $exceptionHandling = Configuration::getValue("exception_handling");
+        if ($exceptionHandling["debug"]) {
             return true;
         }
 
@@ -770,6 +800,17 @@ class BaseComponent extends \CBitrixComponent
     protected function langLazyLoad()
     {
         return ($this->arParams['LANG_LAZY_LOAD'] == 'Y');
+    }
+
+    /**
+     * @return \CMain
+     */
+    public function app()
+    {
+        /** @var \CMain $APPLICATION */
+        global $APPLICATION;
+
+        return $APPLICATION;
     }
 
     /**
