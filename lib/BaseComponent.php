@@ -510,7 +510,6 @@ class BaseComponent extends \CBitrixComponent
                 $componentPage = $this->componentRoute ? $this->componentRoute : "";
                 $this->includeComponentTemplate($componentPage);
             }
-
         }
 
         return $this->arResult['RESPONSE_DATA'];
@@ -528,8 +527,10 @@ class BaseComponent extends \CBitrixComponent
         if ($response !== static::SKIP_AJAX_EXECUTION OR $this->isRestMode()) {
 
             if(!$this->isRestMode()) {
-                if (is_array($response) AND !isset($response ['success'])) {
-                    $response ['success'] = true;
+                if (is_array($response)) {
+                    if(!isset($response ['success'])){
+                        $response ['success'] = true;
+                    }
                 } elseif (is_bool($response)) {
                     $response = array('success' => $response);
                 } else {
