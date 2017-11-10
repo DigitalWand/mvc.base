@@ -120,22 +120,22 @@ class BaseComponent extends \CBitrixComponent
     public static function getArComponentParameters()
     {
         return array(
-            "PARAMETERS" => array(
-                "CACHE_TIME" => array('DEFAULT' => 3600),
-                "GREEDY_PARTS" => Array(
-                    "PARENT" => "ADDITIONAL_SETTINGS",
-                    "NAME" => Loc::getMessage("MVC_GREEDY_PARTS"),
-                    "TYPE" => "STRING",
-                    "MULTIPLE" => "N",
-                    "DEFAULT" => "",
+            'PARAMETERS' => array(
+                'CACHE_TIME' => array('DEFAULT' => 3600),
+                'GREEDY_PARTS' => Array(
+                    'PARENT' => 'ADDITIONAL_SETTINGS',
+                    'NAME' => Loc::getMessage('MVC_GREEDY_PARTS'),
+                    'TYPE' => 'STRING',
+                    'MULTIPLE' => 'N',
+                    'DEFAULT' => '',
                 ),
-                "REST_MODE" => array(
-                    "NAME" => Loc::getMessage("MVC_REST_MODE"),
-                    "TYPE" => "CHECKBOX",
-                    "MULTIPLE" => "N",
-                    "VALUE" => "N",
-                    "DEFAULT" => "N",
-                    "PARENT" => "ADDITIONAL_SETTINGS",
+                'REST_MODE' => array(
+                    'NAME' => Loc::getMessage('MVC_REST_MODE'),
+                    'TYPE' => 'CHECKBOX',
+                    'MULTIPLE' => 'N',
+                    'VALUE' => 'N',
+                    'DEFAULT' => 'N',
+                    'PARENT' => 'ADDITIONAL_SETTINGS',
                 ),
             )
         );
@@ -145,13 +145,13 @@ class BaseComponent extends \CBitrixComponent
     {
         $arParams = parent::onPrepareComponentParams($arParams);
         $arParams = array_merge(static::getInternalComponentParameters(), $arParams);
-        if (!isset($arParams['GREEDY_PARTS'])) {
-            $arParams['GREEDY_PARTS'] = array();
-        } elseif (is_string($arParams['GREEDY_PARTS'])) {
+        if (!empty($arParams['GREEDY_PARTS']) AND is_string($arParams['GREEDY_PARTS'])) {
             $arParams['GREEDY_PARTS'] = explode(',', $arParams['GREEDY_PARTS']);
             array_walk($arParams['GREEDY_PARTS'], function (&$string, $key) {
                 $string = trim($string);
             });
+        } else {
+            unset($arParams['GREEDY_PARTS']);
         }
 
         return $arParams;
@@ -204,7 +204,7 @@ class BaseComponent extends \CBitrixComponent
         if ($format == 'json') {
             $restRequest = json_decode($requestBody, true);
             if (is_null($restRequest)) {
-                throw new \InvalidArgumentException("Request data does not contain valid JSON, or the nesting is too deep.");
+                throw new \InvalidArgumentException('Request data does not contain valid JSON, or the nesting is too deep.');
             }
             $originalValues = $this->request->toArray();
             $restRequest = array_merge($originalValues, $restRequest);
@@ -226,18 +226,23 @@ class BaseComponent extends \CBitrixComponent
 
             $engine = new \CComponentEngine($this);
 
-            foreach ($this->arParams['GREEDY_PARTS'] as $part) {
-                $engine->addGreedyPart($part);
+            if(isset($this->arParams['GREEDY_PARTS'])){
+                foreach ($this->arParams['GREEDY_PARTS'] as $part) {
+                    $engine->addGreedyPart($part);
+                }
             }
 
-            $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams["SEF_URL_TEMPLATES"]);
-            $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams["VARIABLE_ALIASES"]);
-            $this->componentRoute = $engine->guessComponentPath($this->arParams["SEF_FOLDER"], $this->arUrlTemplates, $this->arVariables);
+            $this->arUrlTemplates = \CComponentEngine::MakeComponentUrlTemplates(array(), $this->arParams['SEF_URL_TEMPLATES']);
+            $this->arVariableAliases = \CComponentEngine::MakeComponentVariableAliases(array(), $this->arParams['VARIABLE_ALIASES']);
+            $this->componentRoute = $engine->guessComponentPath($this->arParams['SEF_FOLDER'], $this->arUrlTemplates, $this->arVariables);
 
-            $this->parseGreedyPartsVariables();
+
+            if(isset($this->arParams['GREEDY_PARTS'])){
+                $this->parseGreedyPartsVariables();
+            }
 
             if (!$this->componentRoute) {
-                if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams["SEF_FOLDER"])) {
+                if (static::isPathsEqual($this->request->getRequestedPageDirectory(), $this->arParams['SEF_FOLDER'])) {
                     $this->callableFactory(true);
 
                     return true;
@@ -375,7 +380,7 @@ class BaseComponent extends \CBitrixComponent
             /** @noinspection PhpUnusedParameterInspection */
             global /** @noinspection PhpUnusedLocalVariableInspection */
             $APPLICATION;
-            require(Application::getDocumentRoot() . "/404.php");
+            require(Application::getDocumentRoot() . '/404.php');
         }
     }
 
@@ -401,8 +406,8 @@ class BaseComponent extends \CBitrixComponent
      */
     final public static function isPathsEqual($path1, $path2)
     {
-        $path1 = "/" . trim($path1, "/ \t\n\r\0\x0B") . "/";
-        $path2 = "/" . trim($path2, "/ \t\n\r\0\x0B") . "/";
+        $path1 = '/' . trim($path1, "/ \t\n\r\0\x0B") . '/';
+        $path2 = '/' . trim($path2, "/ \t\n\r\0\x0B") . '/';
 
         return $path1 == $path2;
     }
@@ -453,7 +458,7 @@ class BaseComponent extends \CBitrixComponent
     private function isAction($class)
     {
         $traits = class_uses($class);
-        return isset($traits["DigitalWand\MVC\ActionTrait"]);
+        return isset($traits['DigitalWand\MVC\ActionTrait']);
     }
 
     /**
@@ -507,7 +512,7 @@ class BaseComponent extends \CBitrixComponent
 
             } elseif (!$this->isTemplateRendered()) {
                 $this->arResult['RESPONSE_DATA'] = $response;
-                $componentPage = $this->componentRoute ? $this->componentRoute : "";
+                $componentPage = $this->componentRoute ? $this->componentRoute : '';
                 $this->includeComponentTemplate($componentPage);
             }
         }
@@ -705,8 +710,8 @@ class BaseComponent extends \CBitrixComponent
      */
     final public function isDebugMode()
     {
-        $exceptionHandling = Configuration::getValue("exception_handling");
-        if ($exceptionHandling["debug"]) {
+        $exceptionHandling = Configuration::getValue('exception_handling');
+        if ($exceptionHandling['debug']) {
             return true;
         }
 
@@ -795,7 +800,7 @@ class BaseComponent extends \CBitrixComponent
      */
     private function getActionCacheID($cacheID = null)
     {
-        return $this->componentRoute . serialize($this->componentRouteVariables) . (is_null($cacheID) ? "" : $cacheID);
+        return $this->componentRoute . var_export($this->componentRouteVariables) . (is_null($cacheID) ? '' : $cacheID);
     }
 
     protected function langLazyLoad()
