@@ -548,6 +548,7 @@ class BaseComponent extends \CBitrixComponent
 
             $this->app()->RestartBuffer();
             if ($format == 'json') {
+                header('Content-Type: application/json');
                 print json_encode($response);
             } else {
                 throw new NotImplementedException('Format ' . $format . ' in request body is not supported yet.');
@@ -699,7 +700,7 @@ class BaseComponent extends \CBitrixComponent
                 break;
         }
         $code = $code . ' ' . $text;
-        Application::getInstance()->getContext()->getResponse()->setStatus($code);
+        \CHTTP::SetStatus($code);
 
         return $code;
     }
