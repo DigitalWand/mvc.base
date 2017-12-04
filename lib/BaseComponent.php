@@ -333,38 +333,46 @@ class BaseComponent extends \CBitrixComponent
                 $this->throwNotImplemented();
             }
 
-        } catch (AjaxException $e) {
-            $response = array('success' => false);
-            if ($this->arParams['VERBOSE'] == 'Y') {
-                $response['exception'] = array(
-                    'message' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                    'code' => $e->getCode()
-                );
-            }
+        } catch (AjaxException $exception) {
+            $this->printNonHtmlException($exception);
 
-            $this->sendRawDataResponse($response);
+        } catch (RestException $exception) {
+            $this->printNonHtmlException($exception);
 
-        } catch (RestException $e) {
-            $response = array('success' => false);
-            if ($this->arParams['VERBOSE'] == 'Y') {
-                $response['exception'] = array(
-                    'message' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                    'code' => $e->getCode()
-                );
-            }
+        } catch (\Exception $exception) {
+            $this->printHtmlException($exception);
+        }
+    }
 
-            $this->sendRawDataResponse($response);
+    /**
+     * Выводит исключения для REST или AJAX-запросов
+     * @param \Exception $exception
+     */
+    protected function printNonHtmlException(\Exception $exception){
+        $response = array('success' => false);
+        if ($this->arParams['VERBOSE'] == 'Y') {
+            $response['exception'] = array(
+                'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'code' => $exception->getCode()
+            );
+        }
 
-        } catch (\Exception $e) {
-            if ($this->isDebugMode()) {
-                throw $e;
-            } else {
-                $this->showError(static::ERR_EXCEPTION, $e);
-            }
+        $this->sendRawDataResponse($response);
+    }
+
+    /**
+     * Выводит исключение в случае, если компонент должен отдавать обычный html
+     * @param \Exception $exception
+     * @throws \Exception
+     */
+    protected function printHtmlException(\Exception $exception)
+    {
+        if ($this->isDebugMode()) {
+            throw $exception;
+        } else {
+            $this->showError(static::ERR_EXCEPTION, $exception);
         }
     }
 
