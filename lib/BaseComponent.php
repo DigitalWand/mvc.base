@@ -504,7 +504,11 @@ class BaseComponent extends \CBitrixComponent
                 throw new \Exception("Error executing route's {$this->componentRoute} action");
             }
 
-            $this->arResult['RESPONSE_DATA'] = $response;
+            if (!$this->isTemplateRendered()) {
+                $this->arResult['RESPONSE_DATA'] = $response;
+                $componentPage = $this->componentRoute ? $this->componentRoute : '';
+                $this->includeComponentTemplate($componentPage);
+            }
 
         } elseif (($cacheOptions === true AND $this->startResultCache()) //Если включен кеш без дополнительных параметров
             OR (is_string($cacheOptions) AND $this->startResultCache($this->arParams['CACHE_TIME'], $cacheOptions)) //Или если сдополнительными параметрами
@@ -733,7 +737,10 @@ class BaseComponent extends \CBitrixComponent
      */
     private function configureCacheAction()
     {
-        if (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
+        if ($this->arParams['CACHE_TYPE'] == 'N') {
+            return false;
+
+        } elseif (isset($this->arParams['CACHE_ACTION'][$this->componentRoute])) {
             $cacheOption = $this->arParams['CACHE_ACTION'][$this->componentRoute];
             if (is_callable($cacheOption)) {
                 $cacheOption = call_user_func($cacheOption, $this);
@@ -809,7 +816,7 @@ class BaseComponent extends \CBitrixComponent
      */
     private function getActionCacheID($cacheID = null)
     {
-        return $this->componentRoute . var_export($this->componentRouteVariables) . (is_null($cacheID) ? '' : $cacheID);
+        return $this->componentRoute . var_export($this->componentRouteVariables, true) . (is_null($cacheID) ? '' : $cacheID);
     }
 
     protected function langLazyLoad()
